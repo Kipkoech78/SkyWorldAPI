@@ -1,0 +1,255 @@
+const path = require('path');
+const fs   = require('fs');
+const db   = require('../config/db');
+const { create }                  = require('xmlbuilder2');
+const { sendXml, sendError }      = require('../utils/xml');
+const { uploadDir }               = require('../config/multer');
+
+const CHOICE_TYPES = ['single_choice', 'multiple_choice'];
+
+
+/*  POST /api/surveys/:surveyId/responses                              */
+/*  Content-Type: multipart/form-data                                  */
+
+async function submitResponse(req, res) {
+  try {
+    const surveyId = req.params.surveyId;
+
+    const [survey] = await db.execute('SELECT id FROM surveys WHERE id = ?', [surveyId]);
+    if (!survey.length) return sendError(res, 'Survey not found', 404);
+
+    // Fetch all questions for this survey
+    const [questions] = await db.execute(
+      'SELECT * FROM questions WHERE survey_id = ? ORDER BY sort_order',
+      [surveyId]
+    );
+
+    // Validate required fields
+    for (const q of questions) {
+      if (!q.required) continue;
+      const val = req.body[q.name];
+      if (q.type === 'file') {
+        const files = (req.files || []).filter(f => f.fieldname === q.name);
+        if (!files.length) return sendError(res, `Required file field missing: ${q.name}`, 422);
+      } else if (!val || String(val).trim() === '') {
+        return sendError(res, `Required field missing: ${q.name}`, 422);
+      }
+    }
+
+    // Create survey_response record
+    const [rResult] = await db.execute(
+      'INSERT INTO survey_responses (survey_id) VALUES (?)',
+      [surveyId]
+    );
+    const responseId = rResult.insertId;
+
+    // Persist answers
+    for (const q of questions) {
+      if (q.type === 'file') {
+        const files = (req.files || []).filter(f => f.fieldname === q.name);
+        for (const file of files) {
+          await db.execute(
+            `INSERT INTO certificates
+               (response_id, question_id, original_name, stored_path, mime_type, file_size)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [responseId, q.id, file.originalname, file.path, file.mimetype, file.size]
+          );
+        }
+      } else {
+        const val = req.body[q.name] ?? null;
+        if (val !== null) {
+          await db.execute(
+            'INSERT INTO response_answers (response_id, question_id, answer) VALUES (?, ?, ?)',
+            [responseId, q.id, String(val)]
+          );
+        }
+      }
+    }
+
+    // Build XML response
+    const root = buildResponseXml(
+      create({ version: '1.0' }),
+      responseId,
+      questions,
+      req.body,
+      req.files || [],
+      new Date()
+    );
+
+    sendXml(res, root, 201);
+  } catch (err) {
+    console.error(err);
+    sendError(res, 'Internal server error', 500);
+  }
+}
+
+
+/*  GET /api/surveys/:surveyId/responses                               */
+/*  Query: page, pageSize, email                                       */
+
+async function getResponses(req, res) {
+  try {
+    const surveyId = req.params.surveyId;
+
+    const [survey] = await db.execute('SELECT id FROM surveys WHERE id = ?', [surveyId]);
+    if (!survey.length) return sendError(res, 'Survey not found', 404);
+
+    const page     = Math.max(1, parseInt(req.query.page     || '1'));
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize || '10')));
+    const email    = req.query.email || null;
+    const offset   = (page - 1) * pageSize;
+
+    // Fetch the email question for this survey (used for filtering)
+    const [emailQRows] = await db.execute(
+      "SELECT id FROM questions WHERE survey_id = ? AND type = 'email' LIMIT 1",
+      [surveyId]
+    );
+    const emailQId = emailQRows[0]?.id || null;
+
+    // Build dynamic where clause
+    let where  = 'sr.survey_id = ?';
+    const args = [surveyId];
+
+    if (email && emailQId) {
+      where += ' AND EXISTS (SELECT 1 FROM response_answers ra WHERE ra.response_id = sr.id AND ra.question_id = ? AND ra.answer LIKE ?)';
+      args.push(emailQId, `%${email}%`);
+    }
+
+    const [[{ total }]] = await db.execute(
+      `SELECT COUNT(*) as total FROM survey_responses sr WHERE ${where}`,
+      args
+    );
+
+    const [responses] = await db.execute(
+      `SELECT sr.id, sr.submitted_at FROM survey_responses sr WHERE ${where}
+       ORDER BY sr.submitted_at DESC LIMIT ? OFFSET ?`,
+      [...args, pageSize, offset]
+    );
+
+    const lastPage = Math.max(1, Math.ceil(total / pageSize));
+
+    // Fetch questions for this survey
+    const [questions] = await db.execute(
+      'SELECT * FROM questions WHERE survey_id = ? ORDER BY sort_order',
+      [surveyId]
+    );
+
+    const root = create({ version: '1.0' }).ele('question_responses', {
+      current_page: page,
+      last_page:    lastPage,
+      page_size:    pageSize,
+      total_count:  total,
+    });
+
+    for (const r of responses) {
+      // Fetch answers
+      const [answers] = await db.execute(
+        'SELECT question_id, answer FROM response_answers WHERE response_id = ?',
+        [r.id]
+      );
+      const answerMap = {};
+      for (const a of answers) answerMap[a.question_id] = a.answer;
+
+      // Fetch certificates
+      const [certs] = await db.execute(
+        'SELECT id, original_name FROM certificates WHERE response_id = ? ORDER BY id',
+        [r.id]
+      );
+
+      appendResponseElement(root, r, questions, answerMap, certs);
+    }
+
+    sendXml(res, root);
+  } catch (err) {
+    console.error(err);
+    sendError(res, 'Internal server error', 500);
+  }
+}
+
+
+//  GET /api/certificates/:id                                         
+
+async function downloadCertificate(req, res) {
+  try {
+    const [rows] = await db.execute(
+      'SELECT * FROM certificates WHERE id = ?',
+      [req.params.id]
+    );
+    if (!rows.length) return sendError(res, 'Certificate not found', 404);
+
+    const cert = rows[0];
+    if (!fs.existsSync(cert.stored_path)) return sendError(res, 'File not found on server', 404);
+
+    res.download(cert.stored_path, cert.original_name);
+  } catch (err) {
+    console.error(err);
+    sendError(res, 'Internal server error', 500);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Build a <question_response> element on the given parent for an
+ * in-flight submission (from multipart form data).
+ */
+function buildResponseXml(parent, responseId, questions, body, files, submittedAt) {
+  const qr = parent.ele('question_response');
+  qr.ele('response_id').txt(String(responseId)).up();
+
+  for (const q of questions) {
+    if (q.type === 'file') {
+      const certFiles = files.filter(f => f.fieldname === q.name);
+      if (certFiles.length) {
+        const certsEle = qr.ele('certificates');
+        for (const f of certFiles) {
+          certsEle.ele('certificate').txt(f.originalname).up();
+        }
+      }
+    } else {
+      const val = body[q.name];
+      if (val !== undefined && val !== null) {
+        qr.ele(q.name).txt(String(val)).up();
+      }
+    }
+  }
+
+  qr.ele('date_responded').txt(
+    submittedAt.toISOString().replace('T', ' ').slice(0, 19)
+  ).up();
+
+  return parent;
+}
+
+/**
+ * Append a <question_response> to an existing parent element from
+ * persisted DB data.
+ */
+function appendResponseElement(parent, response, questions, answerMap, certs) {
+  const qr = parent.ele('question_response');
+  qr.ele('response_id').txt(String(response.id)).up();
+
+  for (const q of questions) {
+    if (q.type === 'file') continue; // handled below
+    const ans = answerMap[q.id];
+    if (ans !== undefined && ans !== null) {
+      qr.ele(q.name).txt(String(ans)).up();
+    }
+  }
+
+  if (certs.length) {
+    const certsEle = qr.ele('certificates');
+    for (const c of certs) {
+      certsEle.ele('certificate', { id: c.id }).txt(c.original_name).up();
+    }
+  }
+
+  const dt = new Date(response.submitted_at);
+  qr.ele('date_responded').txt(
+    dt.toISOString().replace('T', ' ').slice(0, 19)
+  ).up();
+}
+
+module.exports = { submitResponse, getResponses, downloadCertificate };
