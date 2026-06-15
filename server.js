@@ -5,10 +5,12 @@ const app = express();
 const xmlparser = require('express-xml-bodyparser');
 
 app.use(cors());
+
 app.use(express.urlencoded({ extended: true }));
 
 
 app.use(xmlparser());
+
 
 require('dotenv').config();
 
