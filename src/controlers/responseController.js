@@ -9,8 +9,18 @@ const CHOICE_TYPES = ['single_choice', 'multiple_choice'];
 
 
 /*  POST /api/surveys/:surveyId/responses                              */
-/*  Content-Type: multipart/form-data                                  */
+/*  Content-Type: multipart/form-data   */
+// Helper to extract a scalar value from body field (multer may give arrays)
+function bodyVal(raw) {
+  if (Array.isArray(raw)) return raw[0] ?? null;
+  return raw ?? null;
+}
 
+// For multiple_choice, keep the full array
+function bodyVals(raw) {
+  if (Array.isArray(raw)) return raw;
+  return raw != null ? [raw] : [];
+}
 async function submitResponse(req, res) {
   try {
     const surveyId = req.params.surveyId;
@@ -18,21 +28,31 @@ async function submitResponse(req, res) {
     const [survey] = await db.execute('SELECT id FROM surveys WHERE id = ?', [surveyId]);
     if (!survey.length) return sendError(res, 'Survey not found', 404);
 
-    // Fetch all questions for this survey
     const [questions] = await db.execute(
       'SELECT * FROM questions WHERE survey_id = ? ORDER BY sort_order',
       [surveyId]
     );
 
+    // ✅ Unwrap nested 'response' envelope if present
+    const body = req.body?.response ?? req.body ?? {};
+
     // Validate required fields
     for (const q of questions) {
       if (!q.required) continue;
-      const val = req.body[q.name];
+
       if (q.type === 'file') {
         const files = (req.files || []).filter(f => f.fieldname === q.name);
         if (!files.length) return sendError(res, `Required file field missing: ${q.name}`, 422);
-      } else if (!val || String(val).trim() === '') {
-        return sendError(res, `Required field missing: ${q.name}`, 422);
+
+      } else if (CHOICE_TYPES.includes(q.type)) {
+        const vals = bodyVals(body[q.name]);
+        if (!vals.length) return sendError(res, `Required field missing: ${q.name}`, 422);
+
+      } else {
+        const val = bodyVal(body[q.name]);
+        if (!val || String(val).trim() === '') {
+          return sendError(res, `Required field missing: ${q.name}`, 422);
+        }
       }
     }
 
@@ -55,8 +75,18 @@ async function submitResponse(req, res) {
             [responseId, q.id, file.originalname, file.path, file.mimetype, file.size]
           );
         }
+
+      } else if (CHOICE_TYPES.includes(q.type)) {
+        const vals = bodyVals(body[q.name]);
+        for (const v of vals) {
+          await db.execute(
+            'INSERT INTO response_answers (response_id, question_id, answer) VALUES (?, ?, ?)',
+            [responseId, q.id, String(v)]
+          );
+        }
+
       } else {
-        const val = req.body[q.name] ?? null;
+        const val = bodyVal(body[q.name]);
         if (val !== null) {
           await db.execute(
             'INSERT INTO response_answers (response_id, question_id, answer) VALUES (?, ?, ?)',
@@ -66,12 +96,11 @@ async function submitResponse(req, res) {
       }
     }
 
-    // Build XML response
     const root = buildResponseXml(
       create({ version: '1.0' }),
       responseId,
       questions,
-      req.body,
+      body,
       req.files || [],
       new Date()
     );
@@ -82,8 +111,6 @@ async function submitResponse(req, res) {
     sendError(res, 'Internal server error', 500);
   }
 }
-
-
 /*  GET /api/surveys/:surveyId/responses                               */
 /*  Query: page, pageSize, email                                       */
 
