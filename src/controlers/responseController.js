@@ -21,98 +21,104 @@ function bodyVals(raw) {
   if (Array.isArray(raw)) return raw;
   return raw != null ? [raw] : [];
 }
-async function submitResponse(req, res) {
-  try {
-    const surveyId = req.params.surveyId;
-
-    const [survey] = await db.execute('SELECT id FROM surveys WHERE id = ?', [surveyId]);
-    if (!survey.length) return sendError(res, 'Survey not found', 404);
-
-    const [questions] = await db.execute(
-      'SELECT * FROM questions WHERE survey_id = ? ORDER BY sort_order',
-      [surveyId]
-    );
-
-    // ✅ Unwrap nested 'response' envelope if present
-    const body = req.body?.response ?? req.body ?? {};
-
-    // Validate required fields
-    for (const q of questions) {
-      if (!q.required) continue;
-
-      if (q.type === 'file') {
-        const files = (req.files || []).filter(f => f.fieldname === q.name);
-        if (!files.length) return sendError(res, `Required file field missing: ${q.name}`, 422);
-
-      } else if (CHOICE_TYPES.includes(q.type)) {
-        const vals = bodyVals(body[q.name]);
-        if (!vals.length) return sendError(res, `Required field missing: ${q.name}`, 422);
-
-      } else {
-        const val = bodyVal(body[q.name]);
-        if (!val || String(val).trim() === '') {
-          return sendError(res, `Required field missing: ${q.name}`, 422);
-        }
-      }
-    }
-
-    // Create survey_response record
-    const [rResult] = await db.execute(
-      'INSERT INTO survey_responses (survey_id) VALUES (?)',
-      [surveyId]
-    );
-    const responseId = rResult.insertId;
-
-    // Persist answers
-    for (const q of questions) {
-      if (q.type === 'file') {
-        const files = (req.files || []).filter(f => f.fieldname === q.name);
-        for (const file of files) {
-          await db.execute(
-            `INSERT INTO certificates
-               (response_id, question_id, original_name, stored_path, mime_type, file_size)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [responseId, q.id, file.originalname, file.path, file.mimetype, file.size]
-          );
-        }
-
-      } else if (CHOICE_TYPES.includes(q.type)) {
-        const vals = bodyVals(body[q.name]);
-        for (const v of vals) {
-          await db.execute(
-            'INSERT INTO response_answers (response_id, question_id, answer) VALUES (?, ?, ?)',
-            [responseId, q.id, String(v)]
-          );
-        }
-
-      } else {
-        const val = bodyVal(body[q.name]);
-        if (val !== null) {
-          await db.execute(
-            'INSERT INTO response_answers (response_id, question_id, answer) VALUES (?, ?, ?)',
-            [responseId, q.id, String(val)]
-          );
-        }
-      }
-    }
-
-    const root = buildResponseXml(
-      create({ version: '1.0' }),
-      responseId,
-      questions,
-      body,
-      req.files || [],
-      new Date()
-    );
-
-    sendXml(res, root, 201);
-  } catch (err) {
-    console.error(err);
-    sendError(res, 'Internal server error', 500);
-  }
+// Add this helper at the top of responseController.js
+function toXmlTag(name) {
+  // Replace spaces and invalid chars with underscores, ensure doesn't start with a number
+  let tag = String(name).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+  if (/^[^a-zA-Z_]/.test(tag)) tag = '_' + tag;
+  return tag;
 }
+  async function submitResponse(req, res) {
+    try {
+      const surveyId = req.params.surveyId;
+
+      const [survey] = await db.execute('SELECT id FROM surveys WHERE id = ?', [surveyId]);
+      if (!survey.length) return sendError(res, 'Survey not found', 404);
+
+      const [questions] = await db.execute(
+        'SELECT * FROM questions WHERE survey_id = ? ORDER BY sort_order',
+        [surveyId]
+      );
+
+      //Unwrap nested 'response' envelope if present
+      const body = req.body?.response ?? req.body ?? {};
+
+      // Validate required fields
+      for (const q of questions) {
+        if (!q.required) continue;
+
+        if (q.type === 'file') {
+          const files = (req.files || []).filter(f => f.fieldname === q.name);
+          if (!files.length) return sendError(res, `Required file field missing: ${q.name}`, 422);
+
+        } else if (CHOICE_TYPES.includes(q.type)) {
+          const vals = bodyVals(body[q.name]);
+          if (!vals.length) return sendError(res, `Required field missing: ${q.name}`, 422);
+
+        } else {
+          const val = bodyVal(body[q.name]);
+          if (!val || String(val).trim() === '') {
+            return sendError(res, `Required field missing: ${q.name}`, 422);
+          }
+        }
+      }
+
+      // Create survey_response record
+      const [rResult] = await db.execute(
+        'INSERT INTO survey_responses (survey_id) VALUES (?)',
+        [surveyId]
+      );
+      const responseId = rResult.insertId;
+
+      // Persist answers
+      for (const q of questions) {
+        if (q.type === 'file') {
+          const files = (req.files || []).filter(f => f.fieldname === q.name);
+          for (const file of files) {
+            await db.execute(
+  `INSERT INTO certificates
+    (response_id, original_name, stored_name, mime_type, file_size_bytes)
+  VALUES (?, ?, ?, ?, ?)`,
+  [responseId, file.originalname, file.path, file.mimetype, file.size]
+);
+          }
+
+        } else if (CHOICE_TYPES.includes(q.type)) {
+          const vals = bodyVals(body[q.name]);
+          for (const v of vals) {
+            await db.execute(
+              'INSERT INTO response_answers (response_id, question_id, answer_text) VALUES (?, ?, ?)',
+              [responseId, q.id, String(v)]
+            );
+          }
+
+        } else {
+          const val = bodyVal(body[q.name]);
+          if (val !== null) {
+            await db.execute(
+              'INSERT INTO response_answers (response_id, question_id, answer_text) VALUES (?, ?, ?)',
+              [responseId, q.id, String(val)]
+            );
+          }
+        }
+      }
+
+      const root = buildResponseXml(
+        create({ version: '1.0' }),
+        responseId,
+        questions,
+        body,
+        req.files || [],
+        new Date()
+      );
+
+      sendXml(res, root, 201);
+    } catch (err) {
+      console.error(err);
+      sendError(res, 'Internal server error', 500);
+    }
+  }
 /*  GET /api/surveys/:surveyId/responses                               */
-/*  Query: page, pageSize, email                                       */
 
 async function getResponses(req, res) {
   try {
@@ -138,7 +144,8 @@ async function getResponses(req, res) {
     const args = [surveyId];
 
     if (email && emailQId) {
-      where += ' AND EXISTS (SELECT 1 FROM response_answers ra WHERE ra.response_id = sr.id AND ra.question_id = ? AND ra.answer LIKE ?)';
+      where += ' AND EXISTS (SELECT 1 FROM response_answers ra WHERE ra.response_id = sr.id AND ra.question_id = ? AND ra.answer_text LIKE ?)';
+     // where += ' AND EXISTS (SELECT 1 FROM response_answers ra WHERE ra.response_id = sr.id AND ra.question_id = ? AND ra.answer LIKE ?)';
       args.push(emailQId, `%${email}%`);
     }
 
@@ -171,11 +178,13 @@ async function getResponses(req, res) {
     for (const r of responses) {
       // Fetch answers
       const [answers] = await db.execute(
-        'SELECT question_id, answer FROM response_answers WHERE response_id = ?',
+        'SELECT question_id, answer_text FROM response_answers WHERE response_id = ?',
         [r.id]
       );
       const answerMap = {};
-      for (const a of answers) answerMap[a.question_id] = a.answer;
+      for (const a of answers) answerMap[a.question_id] = a.answer_text; // ← was a.answer
+      // const answerMap = {};
+      // for (const a of answers) answerMap[a.question_id] = a.answer;
 
       // Fetch certificates
       const [certs] = await db.execute(
@@ -254,29 +263,48 @@ function buildResponseXml(parent, responseId, questions, body, files, submittedA
  * Append a <question_response> to an existing parent element from
  * persisted DB data.
  */
-function appendResponseElement(parent, response, questions, answerMap, certs) {
-  const qr = parent.ele('question_response');
-  qr.ele('response_id').txt(String(response.id)).up();
+function appendResponseElement(root, r, questions, answerMap, certs) {
+  const responseEl = root.ele('question_response');
+  responseEl.ele('response_id').txt(String(r.id));
+  responseEl.ele('date_responded').txt(String(r.submitted_at));
 
   for (const q of questions) {
-    if (q.type === 'file') continue; // handled below
-    const ans = answerMap[q.id];
-    if (ans !== undefined && ans !== null) {
-      qr.ele(q.name).txt(String(ans)).up();
-    }
+    const tag = toXmlTag(q.name); // ← sanitize here
+    const val = answerMap[q.id] ?? '';
+    responseEl.ele(tag).txt(String(val));
   }
 
+  // certificates
   if (certs.length) {
-    const certsEle = qr.ele('certificates');
+    const certsEl = responseEl.ele('certificates');
     for (const c of certs) {
-      certsEle.ele('certificate', { id: c.id }).txt(c.original_name).up();
+      certsEl.ele('certificate', { id: c.id }).txt(c.original_name);
     }
   }
-
-  const dt = new Date(response.submitted_at);
-  qr.ele('date_responded').txt(
-    dt.toISOString().replace('T', ' ').slice(0, 19)
-  ).up();
 }
+// function appendResponseElement(parent, response, questions, answerMap, certs) {
+//   const qr = parent.ele('question_response');
+//   qr.ele('response_id').txt(String(response.id)).up();
+
+//   for (const q of questions) {
+//     if (q.type === 'file') continue; // handled below
+//     const ans = answerMap[q.id];
+//     if (ans !== undefined && ans !== null) {
+//       qr.ele(q.name).txt(String(ans)).up();
+//     }
+//   }
+
+//   if (certs.length) {
+//     const certsEle = qr.ele('certificates');
+//     for (const c of certs) {
+//       certsEle.ele('certificate', { id: c.id }).txt(c.original_name).up();
+//     }
+//   }
+
+//   const dt = new Date(response.submitted_at);
+//   qr.ele('date_responded').txt(
+//     dt.toISOString().replace('T', ' ').slice(0, 19)
+//   ).up();
+// }
 
 module.exports = { submitResponse, getResponses, downloadCertificate };

@@ -17,7 +17,18 @@ const storage = multer.diskStorage({
 });
 
 function fileFilter(_req, file, cb) {
+  const knownTextMimetypes = [
+    'text/plain',
+    'application/octet-stream', // sometimes sent for text fields
+  ];
+
+  // Allow if it's a known text/form mimetype
+  if (knownTextMimetypes.includes(file.mimetype)) return cb(null, true);
+
+  // Allow PDFs
   if (file.mimetype === 'application/pdf') return cb(null, true);
+
+  // Reject everything else (images, docx, etc.)
   cb(new Error('Only PDF files are accepted'), false);
 }
 

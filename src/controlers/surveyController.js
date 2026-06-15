@@ -41,7 +41,7 @@ async function getSurveys(req, res) {
   try {
     const [rows] = await db.execute('SELECT * FROM surveys');
 
-    console.log('ROWS FROM DB:', rows); // DEBUG
+    // console.log('ROWS FROM DB:', rows); // DEBUG
 
     const root = create({ version: '1.0' }).ele('surveys');
 
