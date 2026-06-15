@@ -24,6 +24,7 @@ function attrsOf(val) {
 function buildQuestionElement(parent, q, options = []) {
   //const qType = CHOICE_TYPES.includes(q.type) ? 'choice' : q.type;
 //  const qType = q.type;
+
   const qEle = parent.ele('question', {
     id: q.id,
     name: q.name,
@@ -75,7 +76,7 @@ async function createQuestion(req, res) {
     const body = req.body?.question || {};
     const attrs = body.$ || {};
 
-   // console.log('[createQuestion] raw body:', JSON.stringify(body, null, 2));
+   console.log('[createQuestion] raw body:', JSON.stringify(body, null, 2));
 
    
     const typeFrmBody = attrs.type || '';
