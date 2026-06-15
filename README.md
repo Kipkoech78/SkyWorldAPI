@@ -18,7 +18,7 @@ A REST API for the Sky World Survey Platform. It allows administrators to manage
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/Kipkoech78/simple-survey-api.git
+   git clone https://github.com/Kipkoech78/SkyWorldAPI.git
    cd simple-survey-api
    ```
 
