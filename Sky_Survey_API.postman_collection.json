@@ -1,0 +1,189 @@
+{
+  "info": {
+    "_postman_id": "9b100cb8-ba6a-4434-b7d9-1e7074dead92",
+    "name": "Sky_Survey_API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "34337738"
+  },
+  "item": [
+    {
+      "name": "http://localhost:3000/api/surveys/1/questions",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/xml",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<question name=\"full_name\" type=\"short_text\" required=\"yes\">\n  <text>What is your full name?</text>\n  <description>Your legal name</description>\n</question>",
+          "options": {
+            "raw": {
+              "language": "xml"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/surveys/1/questions",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "surveys",
+            "1",
+            "questions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:3000/api/surveys/2/questions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/surveys/2/questions",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "surveys",
+            "2",
+            "questions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:3000/api/surveys/",
+      "request": {
+        "method": "GET",
+        "header": []
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:3000/api/surveys/3/questions",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/xml",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<question\r\nname=\"programming_stack\" \r\ntype=\"choice\" \r\nrequired=\"yes\" >\r\n<text>What programming stack are you familiar with?</text>\r\n<description>You can select multiple</description>\r\n<options multiple=\"yes\">\r\n<option value=\"REACT\">React JS</option>\r\n<option value=\"ANGULAR\">Angular</option>\r\n<option value=\"VUE\">Vue JS</option>\r\n<option value=\"JAVA\">Java</option>\r\n<option value=\"PHP\">PHP</option>\r\n<option value=\"GO\">Go</option>\r\n</options>\r\n</question>",
+          "options": {
+            "raw": {
+              "language": "xml"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/surveys/3/questions",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "surveys",
+            "3",
+            "questions"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:3000/api/surveys/3/questions/65",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/xml",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<question name=\"programming_stack\" type=\"multiple_choice\" required=\"yes\">\n<text>What programming stack are you familiar with?</text>\n<description>You can select multiple</description>\n<options multiple=\"yes\">\n<option value=\"REACT\">React JS</option>\n<option value=\"ANGULAR\">Angular</option>\n<option value=\"VUE\">Vue JS</option>\n<option value=\"KOTLIN\">Kotlinn</option>\n<option value=\"PHP\">PHP</option>\n<option value=\"GO\">Go</option>\n</options>\n</question>"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/surveys/3/questions/66",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "surveys",
+            "3",
+            "questions",
+            "66"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "New Request",
+      "request": {
+        "method": "GET",
+        "header": []
+      },
+      "response": []
+    },
+    {
+      "name": "http://localhost:3000/api/certificates/2",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/xml",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<question name=\"programming_stack\" type=\"multiple_choice\" required=\"yes\">\n<text>What programming stack are you familiar with?</text>\n<description>You can select multiple</description>\n<options multiple=\"yes\">\n<option value=\"REACT\">React JS</option>\n<option value=\"ANGULAR\">Angular</option>\n<option value=\"VUE\">Vue JS</option>\n<option value=\"KOTLIN\">Kotlinn</option>\n<option value=\"PHP\">PHP</option>\n<option value=\"GO\">Go</option>\n</options>\n</question>"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/certificates/2",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "3000",
+          "path": [
+            "api",
+            "certificates",
+            "2"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
