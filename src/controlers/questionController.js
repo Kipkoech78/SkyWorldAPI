@@ -6,9 +6,9 @@ const { sendXml, sendError, boolAttr } = require('../utils/xml');
 const VALID_TYPES = ['short_text', 'long_text', 'email', 'single_choice', 'multiple_choice', 'file'];
 const CHOICE_TYPES = ['single_choice', 'multiple_choice'];
 
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                             */
-/* ------------------------------------------------------------------ */
+
+// Helpers                                                             
+
 function firstOf(val) {
   return Array.isArray(val) ? val[0] : val;
 }
@@ -18,9 +18,9 @@ function attrsOf(val) {
   return (node && node.$) ? node.$ : {};
 }
 
-/* ------------------------------------------------------------------ */
-/*  Build <question> XML response element                              */
-/* ------------------------------------------------------------------ */
+
+// Build <question> XML response element                          
+
 function buildQuestionElement(parent, q, options = []) {
   //const qType = CHOICE_TYPES.includes(q.type) ? 'choice' : q.type;
 //  const qType = q.type;
@@ -60,9 +60,9 @@ function buildQuestionElement(parent, q, options = []) {
   return qEle;
 }
 
-/* ------------------------------------------------------------------ */
-/*  POST /api/surveys/:surveyId/questions                              */
-/* ------------------------------------------------------------------ */
+
+//  POST /api/surveys/:surveyId/questions                
+
 async function createQuestion(req, res) {
   try {
     const surveyId = req.params.surveyId;
@@ -188,9 +188,9 @@ async function createQuestion(req, res) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  GET /api/surveys/:surveyId/questions                               */
-/* ------------------------------------------------------------------ */
+
+//  GET /api/surveys/:surveyId/questions                         
+
 async function getQuestions(req, res) {
   try {
     const surveyId = req.params.surveyId;
@@ -224,9 +224,7 @@ async function getQuestions(req, res) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  GET /api/surveys/:surveyId/questions/:id                           */
-/* ------------------------------------------------------------------ */
+//  GET /api/surveys/:surveyId/questions/:id                           
 async function getQuestion(req, res) {
   try {
     const [rows] = await db.execute(
@@ -254,9 +252,7 @@ async function getQuestion(req, res) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  PUT /api/surveys/:surveyId/questions/:id                           */
-/* ------------------------------------------------------------------ */
+// PUT /api/surveys/:surveyId/questions/:id                         
 async function updateQuestion(req, res) {
   try {
     const [rows] = await db.execute(
@@ -333,9 +329,7 @@ async function updateQuestion(req, res) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/*  DELETE /api/surveys/:surveyId/questions/:id                        */
-/* ------------------------------------------------------------------ */
+// DELETE /api/surveys/:surveyId/questions/:id        
 async function deleteQuestion(req, res) {
   try {
     const [rows] = await db.execute(

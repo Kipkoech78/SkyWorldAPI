@@ -132,20 +132,17 @@ async function getResponses(req, res) {
     const email    = req.query.email || null;
     const offset   = (page - 1) * pageSize;
 
-    // Fetch the email question for this survey (used for filtering)
     const [emailQRows] = await db.execute(
       "SELECT id FROM questions WHERE survey_id = ? AND type = 'email' LIMIT 1",
       [surveyId]
     );
     const emailQId = emailQRows[0]?.id || null;
 
-    // Build dynamic where clause
     let where  = 'sr.survey_id = ?';
     const args = [surveyId];
 
     if (email && emailQId) {
       where += ' AND EXISTS (SELECT 1 FROM response_answers ra WHERE ra.response_id = sr.id AND ra.question_id = ? AND ra.answer_text LIKE ?)';
-     // where += ' AND EXISTS (SELECT 1 FROM response_answers ra WHERE ra.response_id = sr.id AND ra.question_id = ? AND ra.answer LIKE ?)';
       args.push(emailQId, `%${email}%`);
     }
 
@@ -168,6 +165,28 @@ async function getResponses(req, res) {
       [surveyId]
     );
 
+    // --- NEW: fetch choice options for any choice-type questions ---
+    const choiceTypes = ['radio', 'checkbox', 'select', 'dropdown'];
+    const choiceQuestionIds = questions
+      .filter(q => choiceTypes.includes(q.type))
+      .map(q => q.id);
+
+    const optionsByQuestion = {}; // { question_id: { option_id: option_text } }
+    if (choiceQuestionIds.length) {
+      const placeholders = choiceQuestionIds.map(() => '?').join(',');
+      const [options] = await db.execute(
+        `SELECT id, question_id, option_text FROM question_options WHERE question_id IN (${placeholders})`,
+        choiceQuestionIds
+      );
+      for (const opt of options) {
+        if (!optionsByQuestion[opt.question_id]) optionsByQuestion[opt.question_id] = {};
+        optionsByQuestion[opt.question_id][String(opt.id)] = opt.option_text;
+      }
+    }
+
+    const questionsById = {};
+    for (const q of questions) questionsById[q.id] = q;
+
     const root = create({ version: '1.0' }).ele('question_responses', {
       current_page: page,
       last_page:    lastPage,
@@ -176,17 +195,71 @@ async function getResponses(req, res) {
     });
 
     for (const r of responses) {
-      // Fetch answers
       const [answers] = await db.execute(
         'SELECT question_id, answer_text FROM response_answers WHERE response_id = ?',
         [r.id]
       );
-      const answerMap = {};
-      for (const a of answers) answerMap[a.question_id] = a.answer_text; // ← was a.answer
-      // const answerMap = {};
-      // for (const a of answers) answerMap[a.question_id] = a.answer;
+      // Build a map of question_id -> question (need this to know which are choice-type)
+const questionsById = {};
+for (const q of questions) questionsById[q.id] = q;
 
-      // Fetch certificates
+const choiceTypes = ['radio', 'checkbox', 'select', 'dropdown']; // adjust to your actual type strings
+
+// Group raw answer rows by question_id first, instead of overwriting
+const rawByQuestion = {};
+for (const a of answers) {
+  if (a.answer_text == null) continue;
+  if (!rawByQuestion[a.question_id]) rawByQuestion[a.question_id] = [];
+  rawByQuestion[a.question_id].push(a.answer_text);
+}
+
+const answerMap = {};
+for (const [qid, pieces] of Object.entries(rawByQuestion)) {
+  const question = questionsById[qid];
+
+  if (question && choiceTypes.includes(question.type)) {
+    // Normalize both storage styles: web (one row per choice) and
+    // android (one row, comma-separated) -> flatten, trim, dedupe, rejoin
+    const merged = pieces
+      .flatMap(p => p.split(','))
+      .map(s => s.trim())
+      .filter(Boolean);
+    answerMap[qid] = [...new Set(merged)].join(', ');
+  } else {
+    // Non-choice questions (text, email, etc.) — don't split on comma,
+    // a free-text answer might legitimately contain one.
+    // If multiple rows exist unexpectedly, just take the last one as before.
+    answerMap[qid] = pieces[pieces.length - 1];
+  }
+}
+
+      // const answerMap = {};
+      // for (const a of answers) {
+      //   const question = questionsById[a.question_id];
+      //   const optMap = optionsByQuestion[a.question_id];
+
+      //   if (question && optMap && a.answer_text != null) {
+      //     if (question.type === 'checkbox') {
+      //       // multi-select: answer_text may be JSON array or comma-separated ids
+      //       let ids;
+      //       try {
+      //         ids = JSON.parse(a.answer_text);
+      //         if (!Array.isArray(ids)) ids = [String(ids)];
+      //       } catch {
+      //         ids = a.answer_text.split(',').map(s => s.trim());
+      //       }
+      //       answerMap[a.question_id] = ids
+      //         .map(id => optMap[id] ?? id)
+      //         .join(', ');
+      //     } else {
+      //       // single choice: answer_text is the selected option id
+      //       answerMap[a.question_id] = optMap[a.answer_text] ?? a.answer_text;
+      //     }
+      //   } else {
+      //     answerMap[a.question_id] = a.answer_text;
+      //   }
+      // }
+
       const [certs] = await db.execute(
         'SELECT id, original_name FROM certificates WHERE response_id = ? ORDER BY id',
         [r.id]
@@ -202,7 +275,6 @@ async function getResponses(req, res) {
   }
 }
 
-
 //  GET /api/certificates/:id                                         
 
 async function downloadCertificate(req, res) {
@@ -214,18 +286,21 @@ async function downloadCertificate(req, res) {
     if (!rows.length) return sendError(res, 'Certificate not found', 404);
 
     const cert = rows[0];
-    if (!fs.existsSync(cert.stored_path)) return sendError(res, 'File not found on server', 404);
 
-    res.download(cert.stored_path, cert.original_name);
+    // Add this temporarily
+    console.log('stored_path from DB:', cert.stored_path);
+    console.log('File exists:', fs.existsSync(cert.stored_path));
+
+    if (!fs.existsSync(cert.stored_name)) return sendError(res, 'File not found on server', 404);
+
+    res.download(cert.stored_name, cert.original_name);
   } catch (err) {
     console.error(err);
     sendError(res, 'Internal server error', 500);
   }
 }
 
-/* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
-/* ------------------------------------------------------------------ */
 
 /**
  * Build a <question_response> element on the given parent for an
